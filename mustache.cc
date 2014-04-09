@@ -20,12 +20,64 @@ bool IsTag(char tag) {
   return tag == '!' || tag == '#' || tag == '^' || tag == '>' || tag == '/';
 }
 
+void FindJsonPathComponents(const string& path, vector<string>* components) {
+  //
+  bool in_quote = false;
+  bool in_escape = false;
+  int start = 0;
+  for (int i = 0; i < path.size(); ++i) {
+    if (path[i] == '"' && !in_escape) {
+      in_quote = !in_quote;
+    }
+
+    if (path[i] == '.' && !in_escape && !in_quote) {
+      if (i - start > 0) {
+        if (path[start] == '"' && path[(i - 1) - start] == '"') {
+          if (i - start > 3) components->push_back(path.substr(start + 1, i - (start + 2)));
+        } else {
+          components->push_back(path.substr(start, i - start));
+        }
+        start = i + 1;
+      }
+    }
+
+    if (path[i] == '\\' && !in_escape) {
+      in_escape = true;
+    } else {
+      in_escape = false;
+    }
+  }
+
+  if (path.size() - start > 0) {
+    components->push_back(path.substr(start, path.size() - start));
+  }
+}
+
+void ResolveJsonContext(const string& path, const Value& parent_context,
+    const Value** resolved) {
+  if (path == ".") {
+    *resolved = &parent_context;
+    return;
+  }
+  vector<string> components;
+  FindJsonPathComponents(path, &components);
+  const Value* cur = &parent_context;
+  BOOST_FOREACH(const string& c, components) {
+    if (cur->IsObject() && cur->HasMember(c.c_str())) {
+      cur = &(*cur)[c.c_str()];
+    } else {
+      *resolved = NULL;
+      return;
+    }
+  }
+
+  *resolved = cur;
+}
+
 int FindNextMustache(const string& document, int idx, char* tag, string* tag_name,
     stringstream* out) {
-  cout << "Parsing string: " << document << endl;
   while (idx < document.size()) {
     if (document[idx] == '{' && idx < (document.size() - 3) && document[idx + 1] == '{') {
-      cout << "Found mustache: " << idx << endl;;
       idx += 2; // Now at start of template expression
       stringstream expr;
       while (idx < document.size()) {
@@ -55,10 +107,9 @@ int FindNextMustache(const string& document, int idx, char* tag, string* tag_nam
       }
       if (key.size() == 0) continue;
       *tag_name = key;
-      cout << "Returning: " << *tag_name << " - tag: " << *tag << endl;
       return ++idx;
     } else {
-      (*out) << document[idx];
+      if (out != NULL) (*out) << document[idx];
     }
     ++idx;
   }
@@ -68,13 +119,13 @@ int FindNextMustache(const string& document, int idx, char* tag, string* tag_nam
 int DoWith(const string& document, int idx, const Value* parent_context,
     const string& tag_name, stringstream* out) {
   // Precondition: idx is the immedate next character after an opening {{ #tag_name }}
-  // block
-  const Value* context = NULL;
-  if (parent_context->HasMember(tag_name.c_str())) {
-    context = &(*parent_context)[tag_name.c_str()];
-  }
+  // Context is the
+  const Value* context;
+  ResolveJsonContext(tag_name, *parent_context, &context);
+
+  bool blank = (context == NULL);
   vector<const Value*> values;
-  if (context->IsArray()) {
+  if (context != NULL && context->IsArray()) {
     for (int i = 0; i < context->Size(); ++i) {
       values.push_back(&(*context)[i]);
     }
@@ -87,31 +138,34 @@ int DoWith(const string& document, int idx, const Value* parent_context,
     while (idx < document.size()) {
       char tag = 0;
       string next_tag_name;
-      idx = FindNextMustache(document, idx, &tag, &next_tag_name, out);
+      idx = FindNextMustache(document, idx, &tag, &next_tag_name, blank ? NULL : out);
 
-      if (idx >= document.size()) return idx;
-
-      if (tag == '/') {
-        if (next_tag_name != tag_name) return -1;
+      if (idx > document.size()) {
+        cout << "Gone off end of document" << endl;
         return idx;
       }
-      idx = Dispatch(document, idx, v, tag, tag_name, out);
+      // Nested with templates won't be seen here, they'll all be processed inside
+      // Dispatch(). So any end-with template must correspond to this with.
+      if (tag == '/') {
+        if (next_tag_name != tag_name) return -1;
+        break;
+      }
+      idx = Dispatch(document, idx, v, tag, next_tag_name, blank ? NULL : out);
     }
   }
+  return idx;
 }
 
-int DoSubstitute(const string& document, const int idx, const Value* context,
+int DoSubstitute(const string& document, const int idx, const Value* parent_context,
     const string& tag_name, stringstream* out) {
-  if (!context->HasMember(tag_name.c_str())) {
-    return idx;
-  }
-  const Value& value = (*context)[tag_name.c_str()];
-  if (value.IsString()) {
-    (*out) << value.GetString();
-  } else if (value.IsNumber()) {
-    (*out) << value.GetInt();
+  const Value* context;
+  ResolveJsonContext(tag_name, *parent_context, &context);
+  if (context == NULL) return idx;
+  if (context->IsString()) {
+    (*out) << context->GetString();
+  } else if (context->IsNumber()) {
+    (*out) << context->GetInt();
   } // TODO
-  cout << "Returning idx: " << idx << endl;
   return idx;
 }
 
@@ -137,16 +191,29 @@ void RenderTemplate(const string& document, const Value& context, stringstream* 
     string tag_name;
     char tag;
     idx = FindNextMustache(document, idx, &tag, &tag_name, out);
+    cout << "Found: " << tag_name << ", tag: " << tag << endl;
     idx = Dispatch(document, idx, &context, tag, tag_name, out);
-    cout << "IDX: " << idx << " SIZE: " << document.size() << endl;
   }
 }
 
-const string TMPL = "abcdefg {{ contacts }} {{ ! contacts }} hijk {{contacts}} {{ foo}}";
+const string TMPL = "abcdefg {{ contacts }} {{ ! contacts }} hijk {{contacts}} "
+"{{#lst}}"
+"hey everyone {{.}} {{unknown}}"
+"{{/lst}}"
+
+"{{ foo.bar}}";
 
 int main(int argc, char** argv) {
   rapidjson::Document d;
   d.SetObject().AddMember("contacts", 10, d.GetAllocator());
+  Value obj(kObjectType);
+  obj.AddMember("bar", 11, d.GetAllocator());
+  d.AddMember("foo", obj, d.GetAllocator());
+
+  Value lst(kArrayType);
+  lst.PushBack(0, d.GetAllocator());
+  lst.PushBack(1, d.GetAllocator());
+  d.AddMember("lst", lst, d.GetAllocator());
 
   StringBuffer buffer;
   Writer<StringBuffer> writer(buffer);
@@ -156,4 +223,9 @@ int main(int argc, char** argv) {
   stringstream ss;
   RenderTemplate(TMPL, d, &ss);
   cout << ss.str() << endl;
+  // vector<string> components;
+  // FindJsonPathComponents("\"hello.world\".how.are.you", &components);
+  // BOOST_FOREACH(const string& c, components) {
+  //   cout << c << endl;
+  // }
 }
