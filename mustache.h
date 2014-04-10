@@ -17,6 +17,10 @@
 
 namespace mustache {
 
+// Render a template contained in 'document' with respect to the json context
+// 'context'. Alternately finds a tag and then evaluates it. Returns when an error is
+// signalled (TODO: probably doesn't work in all paths), and evaluates that tag. Output is
+// accumulated in 'out'.
 void RenderTemplate(const std::string& document, const rapidjson::Value& context,
     std::stringstream* out);
 

@@ -94,12 +94,18 @@ TEST(RenderTemplate, WithAsPredicate) {
       "Hello World");
   TestTemplate("{{#a}}Hello {{#b}}World{{/b}}{{/a}}", "{ \"a\": 1, \"b\": 2 }",
       "Hello ");
+  TestTemplate("{{#a}}Hello{{/a}}", "{ \"a\": true }", "Hello");
+  TestTemplate("{{#a}}Hello{{/a}}", "{ \"a\": false }", "");
 }
 
 TEST(RenderTemplate, WithAsNegatedPredicate) {
-  // TestTemplate("{{^a}}Hello{{/a}}", "{ \"a\": 1}", "");
-  // TestTemplate("{{^a}}Hello {{.}}{{/a}}", "{ \"a\": 1}", "");
+  TestTemplate("{{^a}}Hello{{/a}}", "{ \"a\": 1}", "");
+  TestTemplate("{{^a}}Hello {{.}}{{/a}}", "{ \"a\": 1}", "");
+  // Empty lists are not false, per RapidJson
   TestTemplate("{{^a}}Hello{{/a}}", "{ \"a\": [] }", "");
+
+  TestTemplate("{{^a}}Hello{{/a}}", "{ \"a\": true }", "");
+  TestTemplate("{{^a}}Hello{{/a}}", "{ \"a\": false }", "Hello");
 }
 
 

@@ -33,6 +33,7 @@ namespace mustache {
 // # Triple {{{
 // # Handle malformed templates better
 // # Support array_tag.length?
+// # Better support for reading templates from files
 
 enum TagOperator {
   SUBSTITUTION,
@@ -77,6 +78,10 @@ void EscapeHtml(const string& in, stringstream *out) {
   }
 }
 
+// Breaks a dotted path into individual components. One wrinkle, which stops this from
+// being a simple split() is that we allow path components to be quoted, e.g.: "foo".bar,
+// and any '.' characters inside those quoted sections aren't considered to be
+// delimiters. This is to allow Json keys that contain periods.
 void FindJsonPathComponents(const string& path, vector<string>* components) {
   bool in_quote = false;
   bool escape_this_char = false;
@@ -84,8 +89,8 @@ void FindJsonPathComponents(const string& path, vector<string>* components) {
   for (int i = start; i < path.size(); ++i) {
     if (path[i] == '"' && !escape_this_char) in_quote = !in_quote;
     if (path[i] == '.' && !escape_this_char && !in_quote) {
-      // Current char == delimiter and not escaped and not Found the end of a path
-      // component =>
+      // Current char == delimiter and not escaped and not in a quote pair => found a
+      // component
       if (i - start > 0) {
         if (path[start] == '"' && path[(i - 1) - start] == '"') {
           if (i - start > 3) {
@@ -112,6 +117,8 @@ void FindJsonPathComponents(const string& path, vector<string>* components) {
   }
 }
 
+// Looks up the json entity at 'path' in 'parent_context', and places it in 'resolved'. If
+// the entity does not exist (i.e. the path is invalid), 'resolved' will be set to NULL.
 void ResolveJsonContext(const string& path, const Value& parent_context,
     const Value** resolved) {
   if (path == ".") {
@@ -173,6 +180,13 @@ int FindNextTag(const string& document, int idx, TagOperator* tag_op, string* ta
   return idx;
 }
 
+// Evaluates a [NEGATED_]SECTION_START / SECTION_END pair by evaluating the tag in
+// 'parent_context'. False or non-existant values cause the entire section to be
+// skipped. True values cause the section to be evaluated as though it were a normal
+// section, but with the parent context being the root context for that section.
+//
+// If 'is_negation' is true, the behaviour is the opposite of the above: false values
+// cause the section to be normally evaluated etc.
 int EvaluateSection(const string& document, int idx, const Value* parent_context,
     bool is_negation, const string& tag_name, stringstream* out) {
   // Precondition: idx is the immedate next character after an opening {{ #tag_name }}
@@ -218,6 +232,8 @@ int EvaluateSection(const string& document, int idx, const Value* parent_context
   return idx;
 }
 
+// Evaluates a SUBSTITUTION tag, by replacing its contents with the value of the tag's
+// name in 'parent_context'.
 int EvaluateSubstitution(const string& document, const int idx,
     const Value* parent_context, const string& tag_name, stringstream* out) {
   const Value* context;
@@ -240,6 +256,9 @@ int EvaluateSubstitution(const string& document, const int idx,
   return idx;
 }
 
+// Given a tag name, and its operator, evaluate the tag in the given context and write the
+// output to 'out'. The heavy-lifting is delegated to specific Evaluate*()
+// methods. Returns the new cursor position within 'document', or -1 on error.
 int EvaluateTag(const string& document, int idx, const Value* context, TagOperator tag,
     const string& tag_name, stringstream* out) {
   if (idx == -1) return idx;
