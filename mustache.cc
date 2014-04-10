@@ -21,14 +21,13 @@ bool IsTag(char tag) {
 }
 
 void FindJsonPathComponents(const string& path, vector<string>* components) {
-  //
   bool in_quote = false;
   bool in_escape = false;
   int start = 0;
-  for (int i = 0; i < path.size(); ++i) {
-    if (path[i] == '"' && !in_escape) {
-      in_quote = !in_quote;
-    }
+  if (path[start] == '.') ++start;
+  for (int i = start; i < path.size(); ++i) {
+    if (path[i] == '"' && !in_escape) in_quote = !in_quote;
+
 
     if (path[i] == '.' && !in_escape && !in_quote) {
       if (i - start > 0) {
@@ -49,7 +48,13 @@ void FindJsonPathComponents(const string& path, vector<string>* components) {
   }
 
   if (path.size() - start > 0) {
-    components->push_back(path.substr(start, path.size() - start));
+    if (path[start] == '"' && path[(path.size() - 1) - start] == '"') {
+      if (path.size() - start > 3) {
+        components->push_back(path.substr(start + 1, path.size() - (start + 2)));
+      }
+    } else {
+      components->push_back(path.substr(start, path.size() - start));
+    }
   }
 }
 
@@ -119,7 +124,6 @@ int FindNextMustache(const string& document, int idx, char* tag, string* tag_nam
 int DoWith(const string& document, int idx, const Value* parent_context,
     const string& tag_name, stringstream* out) {
   // Precondition: idx is the immedate next character after an opening {{ #tag_name }}
-  // Context is the
   const Value* context;
   ResolveJsonContext(tag_name, *parent_context, &context);
 
@@ -163,13 +167,19 @@ int DoSubstitute(const string& document, const int idx, const Value* parent_cont
   if (context == NULL) return idx;
   if (context->IsString()) {
     (*out) << context->GetString();
-  } else if (context->IsNumber()) {
+  } else if (context->IsInt()) {
     (*out) << context->GetInt();
-  } // TODO
+  } else if (context->IsDouble()) {
+    (*out) << context->GetDouble();
+  } else if (context->IsBool()) {
+    (*out) << context->GetBool();
+  }
   return idx;
 }
 
-int Dispatch(const string& document, int idx, const Value* context, char tag, const string& tag_name, stringstream* out) {
+int Dispatch(const string& document, int idx, const Value* context, char tag,
+    const string& tag_name, stringstream* out) {
+  if (idx == -1) return idx;
   switch (tag) {
     case '#':
       return DoWith(document, idx, context, tag_name, out);
@@ -191,41 +201,6 @@ void RenderTemplate(const string& document, const Value& context, stringstream* 
     string tag_name;
     char tag;
     idx = FindNextMustache(document, idx, &tag, &tag_name, out);
-    cout << "Found: " << tag_name << ", tag: " << tag << endl;
     idx = Dispatch(document, idx, &context, tag, tag_name, out);
   }
-}
-
-const string TMPL = "abcdefg {{ contacts }} {{ ! contacts }} hijk {{contacts}} "
-"{{#lst}}"
-"hey everyone {{.}} {{unknown}}"
-"{{/lst}}"
-
-"{{ foo.bar}}";
-
-int main(int argc, char** argv) {
-  rapidjson::Document d;
-  d.SetObject().AddMember("contacts", 10, d.GetAllocator());
-  Value obj(kObjectType);
-  obj.AddMember("bar", 11, d.GetAllocator());
-  d.AddMember("foo", obj, d.GetAllocator());
-
-  Value lst(kArrayType);
-  lst.PushBack(0, d.GetAllocator());
-  lst.PushBack(1, d.GetAllocator());
-  d.AddMember("lst", lst, d.GetAllocator());
-
-  StringBuffer buffer;
-  Writer<StringBuffer> writer(buffer);
-  d.Accept(writer);
-  cout << buffer.GetString() << endl;
-
-  stringstream ss;
-  RenderTemplate(TMPL, d, &ss);
-  cout << ss.str() << endl;
-  // vector<string> components;
-  // FindJsonPathComponents("\"hello.world\".how.are.you", &components);
-  // BOOST_FOREACH(const string& c, components) {
-  //   cout << c << endl;
-  // }
 }
