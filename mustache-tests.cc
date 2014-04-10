@@ -1,14 +1,19 @@
 #include "gtest/gtest.h"
 #include "rapidjson/document.h"
+#include "mustache.h"
 
 #include <vector>
 
 using namespace rapidjson;
 using namespace std;
+using namespace mustache;
+
+namespace mustache {
 
 void FindJsonPathComponents(const string& path, vector<string>* components);
 void RenderTemplate(const string& document, const Value& context, stringstream* out);
 
+}
 //////////////////////////////////////////////////////////////////////////////////////////
 // FindJsonPathComponents
 
@@ -71,6 +76,33 @@ TEST(RenderTemplate, SubstituteWithPaths) {
   TestTemplate("{{ a.b.c.d }}", "{ \"a\": { \"b\": { \"c\": 10 } } }", "");
 }
 
+TEST(RenderTemplate, WithAsIterator) {
+  TestTemplate("{{#a}}Hello{{/a}}", "{ \"a\": [1, 2] }", "HelloHello");
+  TestTemplate("{{#a}}{{.}}{{/a}}", "{ \"a\": [1, 2] }", "12");
+  TestTemplate("{{#a}}{{foo.bar}}{{/a}}", "{ \"a\": [ {\"foo\": { \"bar\": 1 } }, 2] }",
+      "1");
+
+  TestTemplate("{{#a}}{{foo.bar}}{{/a}}{{#b}}{{.}}{{/b}}",
+      "{ \"a\": [ {\"foo\": { \"bar\": 1 } }], \"b\": [ 2 ] }",
+      "12");
+}
+
+TEST(RenderTemplate, WithAsPredicate) {
+  TestTemplate("{{#a}}Hello{{/a}}", "{ \"a\": 1}", "Hello");
+  TestTemplate("{{#a}}Hello {{.}}{{/a}}", "{ \"a\": 1}", "Hello 1");
+  TestTemplate("{{#a}}Hello {{#b}}World{{/b}}{{/a}}", "{ \"a\": { \"b\": 2} }",
+      "Hello World");
+  TestTemplate("{{#a}}Hello {{#b}}World{{/b}}{{/a}}", "{ \"a\": 1, \"b\": 2 }",
+      "Hello ");
+}
+
+TEST(RenderTemplate, IgnoredBlocks) {
+  TestTemplate("Hello {{!ignoreme }} world", "{ \"ignoreme\": 1 }", "Hello  world");
+}
+
+TEST(RenderTemplate, Escaping) {
+  TestTemplate("{{escape}}", "{ \"escape\": \"<html>\" }", "&lt;html&gt;");
+}
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);

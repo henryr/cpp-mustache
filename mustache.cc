@@ -29,11 +29,35 @@ using namespace boost::algorithm;
 
 namespace mustache {
 
+// TODO:
+// # Triple {{{
+// # ^ operator
+// # Ignore false #
+
 int Dispatch(const string& document, int idx, const Value* context, char tag,
     const string& tag_name, stringstream* out);
 
 bool IsTag(char tag) {
   return tag == '!' || tag == '#' || tag == '^' || tag == '>' || tag == '/';
+}
+
+void EscapeHtml(const string& in, stringstream *out) {
+  BOOST_FOREACH(const char& c, in) {
+    switch (c) {
+      case '&': (*out) << "&amp;";
+        break;
+      case '"': (*out) << "&quot;";
+        break;
+      case '\'': (*out) << "&apos;";
+        break;
+      case '<': (*out) << "&lt;";
+        break;
+      case '>': (*out) << "&gt;";
+        break;
+      default: (*out) << c;
+        break;
+    }
+  }
 }
 
 void FindJsonPathComponents(const string& path, vector<string>* components) {
@@ -113,7 +137,8 @@ int FindNextMustache(const string& document, int idx, char* tag, string* tag_nam
       }
 
       string key = expr.str();
-      trim_if(key, is_any_of(" ."));
+      trim(key);
+      if (key != ".") trim_if(key, is_any_of("."));
       if (key.size() == 0) continue;
       char tag_candidate = key[0];
       if (IsTag(tag_candidate)) {
@@ -155,7 +180,8 @@ int DoWith(const string& document, int idx, const Value* parent_context,
     while (idx < document.size()) {
       char tag = 0;
       string next_tag_name;
-      idx = FindNextMustache(document, idx, &tag, &next_tag_name, NULL, blank ? NULL : out);
+      idx = FindNextMustache(document, idx, &tag, &next_tag_name, NULL,
+          blank ? NULL : out);
 
       if (idx > document.size()) {
         cout << "Gone off end of document" << endl;
@@ -179,7 +205,12 @@ int DoSubstitute(const string& document, const int idx, const Value* parent_cont
   ResolveJsonContext(tag_name, *parent_context, &context);
   if (context == NULL) return idx;
   if (context->IsString()) {
-    (*out) << context->GetString();
+    if (true) {
+      EscapeHtml(context->GetString(), out);
+    } else {
+      // TODO: Triple {{{ means don't escape
+      (*out) << context->GetString();
+    }
   } else if (context->IsInt()) {
     (*out) << context->GetInt();
   } else if (context->IsDouble()) {
