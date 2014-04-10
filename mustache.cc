@@ -27,7 +27,7 @@ using namespace rapidjson;
 using namespace std;
 using namespace boost::algorithm;
 
-using namespace mustache;
+namespace mustache {
 
 int Dispatch(const string& document, int idx, const Value* context, char tag,
     const string& tag_name, stringstream* out);
@@ -216,4 +216,6 @@ void RenderTemplate(const string& document, const Value& context, stringstream* 
     idx = FindNextMustache(document, idx, &tag, &tag_name, NULL, out);
     idx = Dispatch(document, idx, &context, tag, tag_name, out);
   }
+}
+
 }
