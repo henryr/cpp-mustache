@@ -96,6 +96,13 @@ TEST(RenderTemplate, WithAsPredicate) {
       "Hello ");
 }
 
+TEST(RenderTemplate, WithAsNegatedPredicate) {
+  // TestTemplate("{{^a}}Hello{{/a}}", "{ \"a\": 1}", "");
+  // TestTemplate("{{^a}}Hello {{.}}{{/a}}", "{ \"a\": 1}", "");
+  TestTemplate("{{^a}}Hello{{/a}}", "{ \"a\": [] }", "");
+}
+
+
 TEST(RenderTemplate, IgnoredBlocks) {
   TestTemplate("Hello {{!ignoreme }} world", "{ \"ignoreme\": 1 }", "Hello  world");
 }

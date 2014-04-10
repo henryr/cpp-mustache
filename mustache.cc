@@ -159,20 +159,28 @@ int FindNextMustache(const string& document, int idx, char* tag, string* tag_nam
   return idx;
 }
 
-int DoWith(const string& document, int idx, const Value* parent_context,
+int DoWith(const string& document, int idx, const Value* parent_context, bool is_negation,
     const string& tag_name, stringstream* out) {
+  cout << "DoWith: " << idx << ", tag_name: " << tag_name << endl;
   // Precondition: idx is the immedate next character after an opening {{ #tag_name }}
   const Value* context;
   ResolveJsonContext(tag_name, *parent_context, &context);
 
-  bool blank = (context == NULL);
+  // If we a) cannot resolve the context from the tag name or b) the context evaluates to
+  // false, we should skip the contents of the template until a closing {{/tag_name}}.
+  bool skip_contents = (context == NULL || context->IsFalse());
+
+  // If the tag is a negative block (i.e. {{^tag_name}}), do the opposite: if the context
+  // exists and is true, skip the contents, else echo them.
+  if (is_negation) skip_contents = !skip_contents;
+
   vector<const Value*> values;
-  if (context != NULL && context->IsArray()) {
+  if (!skip_contents && context != NULL && context->IsArray()) {
     for (int i = 0; i < context->Size(); ++i) {
       values.push_back(&(*context)[i]);
     }
   } else {
-    values.push_back(context);
+    values.push_back(skip_contents ? NULL : context);
   }
   int start_idx = idx;
   BOOST_FOREACH(const Value* v, values) {
@@ -181,19 +189,20 @@ int DoWith(const string& document, int idx, const Value* parent_context,
       char tag = 0;
       string next_tag_name;
       idx = FindNextMustache(document, idx, &tag, &next_tag_name, NULL,
-          blank ? NULL : out);
+          skip_contents ? NULL : out);
 
       if (idx > document.size()) {
         cout << "Gone off end of document" << endl;
         return idx;
       }
-      // Nested with templates won't be seen here, they'll all be processed inside
-      // Dispatch(). So any end-with template must correspond to this with.
-      if (tag == '/') {
-        if (next_tag_name != tag_name) return -1;
+      if (tag == '/' && next_tag_name == tag_name) {
         break;
       }
-      idx = Dispatch(document, idx, v, tag, next_tag_name, blank ? NULL : out);
+
+      // Don't need to evaluate any templates if we're skipping the contents
+      if (!skip_contents) {
+        idx = Dispatch(document, idx, v, tag, next_tag_name, out);
+      }
     }
   }
   return idx;
@@ -226,7 +235,9 @@ int Dispatch(const string& document, int idx, const Value* context, char tag,
   if (idx == -1) return idx;
   switch (tag) {
     case '#':
-      return DoWith(document, idx, context, tag_name, out);
+      return DoWith(document, idx, context, false, tag_name, out);
+    case '^':
+      return DoWith(document, idx, context, true, tag_name, out);
     case 0:
       return DoSubstitute(document, idx, context, tag_name, out);
     case '!':
