@@ -17,8 +17,6 @@
 
 namespace mustache {
 
-bool RenderTemplate(const std::string& document, const std::string& json_context,
-    std::stringstream* out);
 void RenderTemplate(const std::string& document, const rapidjson::Value& context,
     std::stringstream* out);
 

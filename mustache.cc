@@ -44,7 +44,7 @@ void FindJsonPathComponents(const string& path, vector<string>* components) {
     if (path[i] == '"' && !escape_this_char) in_quote = !in_quote;
     if (path[i] == '.' && !escape_this_char && !in_quote) {
       // Current char == delimiter and not escaped and not Found the end of a path
-      // component
+      // component =>
       if (i - start > 0) {
         if (path[start] == '"' && path[(i - 1) - start] == '"') {
           if (i - start > 3) {
@@ -217,5 +217,3 @@ void RenderTemplate(const string& document, const Value& context, stringstream* 
     idx = Dispatch(document, idx, &context, tag, tag_name, out);
   }
 }
-
-//bool RenderTemplate(const string& document, con
