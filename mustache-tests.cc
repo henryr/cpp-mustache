@@ -21,22 +21,6 @@ TEST(FindJsonPathComponents, BasicTest) {
   EXPECT_EQ(components[1], "world");
 }
 
-TEST(FindJsonPathComponents, TrailingPeriod) {
-  vector<string> components;
-  FindJsonPathComponents("hello.world.", &components);
-  EXPECT_EQ(components.size(), 2);
-  EXPECT_EQ(components[0], "hello");
-  EXPECT_EQ(components[1], "world");
-}
-
-TEST(FindJsonPathComponents, PrecedingPeriod) {
-  vector<string> components;
-  FindJsonPathComponents(".hello.world", &components);
-  EXPECT_EQ(components.size(), 2);
-  EXPECT_EQ(components[0], "hello");
-  EXPECT_EQ(components[1], "world");
-}
-
 TEST(FindJsonPathComponents, EnclosingQuotes) {
   vector<string> components;
   FindJsonPathComponents("\"hello.world\"", &components);
@@ -64,7 +48,7 @@ void TestTemplate(const string& tmpl, const string& json_context,
   ASSERT_TRUE(document.IsObject()) << json_context << " is not valid json";
   stringstream ss;
   RenderTemplate(tmpl, document, &ss);
-  ASSERT_EQ(expected, ss.str());
+  ASSERT_EQ(expected, ss.str()) << "Template: " << tmpl << ", json: " << json_context;
 }
 
 TEST(RenderTemplate, SubstituteSimpleTypes) {

@@ -1,9 +1,23 @@
-#include "rapidjson/document.h"
+// Copyright 2014 Henry Robinson
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "mustache.h"
+
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 
 #include <iostream>
-#include <sstream>
 #include <vector>
 
 #include <boost/algorithm/string.hpp>
@@ -12,6 +26,8 @@
 using namespace rapidjson;
 using namespace std;
 using namespace boost::algorithm;
+
+using namespace mustache;
 
 int Dispatch(const string& document, int idx, const Value* context, char tag,
     const string& tag_name, stringstream* out);
@@ -22,17 +38,18 @@ bool IsTag(char tag) {
 
 void FindJsonPathComponents(const string& path, vector<string>* components) {
   bool in_quote = false;
-  bool in_escape = false;
+  bool escape_this_char = false;
   int start = 0;
-  if (path[start] == '.') ++start;
   for (int i = start; i < path.size(); ++i) {
-    if (path[i] == '"' && !in_escape) in_quote = !in_quote;
-
-
-    if (path[i] == '.' && !in_escape && !in_quote) {
+    if (path[i] == '"' && !escape_this_char) in_quote = !in_quote;
+    if (path[i] == '.' && !escape_this_char && !in_quote) {
+      // Current char == delimiter and not escaped and not Found the end of a path
+      // component
       if (i - start > 0) {
         if (path[start] == '"' && path[(i - 1) - start] == '"') {
-          if (i - start > 3) components->push_back(path.substr(start + 1, i - (start + 2)));
+          if (i - start > 3) {
+            components->push_back(path.substr(start + 1, i - (start + 2)));
+          }
         } else {
           components->push_back(path.substr(start, i - start));
         }
@@ -40,11 +57,7 @@ void FindJsonPathComponents(const string& path, vector<string>* components) {
       }
     }
 
-    if (path[i] == '\\' && !in_escape) {
-      in_escape = true;
-    } else {
-      in_escape = false;
-    }
+    escape_this_char = (path[i] == '\\' && !escape_this_char);
   }
 
   if (path.size() - start > 0) {
@@ -80,7 +93,7 @@ void ResolveJsonContext(const string& path, const Value& parent_context,
 }
 
 int FindNextMustache(const string& document, int idx, char* tag, string* tag_name,
-    stringstream* out) {
+    bool* is_triple, stringstream* out) {
   while (idx < document.size()) {
     if (document[idx] == '{' && idx < (document.size() - 3) && document[idx + 1] == '{') {
       idx += 2; // Now at start of template expression
@@ -100,7 +113,7 @@ int FindNextMustache(const string& document, int idx, char* tag, string* tag_nam
       }
 
       string key = expr.str();
-      trim(key);
+      trim_if(key, is_any_of(" ."));
       if (key.size() == 0) continue;
       char tag_candidate = key[0];
       if (IsTag(tag_candidate)) {
@@ -142,7 +155,7 @@ int DoWith(const string& document, int idx, const Value* parent_context,
     while (idx < document.size()) {
       char tag = 0;
       string next_tag_name;
-      idx = FindNextMustache(document, idx, &tag, &next_tag_name, blank ? NULL : out);
+      idx = FindNextMustache(document, idx, &tag, &next_tag_name, NULL, blank ? NULL : out);
 
       if (idx > document.size()) {
         cout << "Gone off end of document" << endl;
@@ -200,7 +213,9 @@ void RenderTemplate(const string& document, const Value& context, stringstream* 
   while (idx < document.size() && idx != -1) {
     string tag_name;
     char tag;
-    idx = FindNextMustache(document, idx, &tag, &tag_name, out);
+    idx = FindNextMustache(document, idx, &tag, &tag_name, NULL, out);
     idx = Dispatch(document, idx, &context, tag, tag_name, out);
   }
 }
+
+//bool RenderTemplate(const string& document, con
