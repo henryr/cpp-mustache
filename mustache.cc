@@ -31,15 +31,32 @@ namespace mustache {
 
 // TODO:
 // # Triple {{{
-// # ^ operator
-// # Ignore false #
+// # Handle malformed templates better
+// # Support array_tag.length?
 
-int Dispatch(const string& document, int idx, const Value* context, char tag,
-    const string& tag_name, stringstream* out);
+enum TagOperator {
+  SUBSTITUTION,
+  SECTION_START,
+  NEGATED_SECTION_START,
+  SECTION_END,
+  PARTIAL,
+  COMMENT
+};
 
-bool IsTag(char tag) {
-  return tag == '!' || tag == '#' || tag == '^' || tag == '>' || tag == '/';
+TagOperator GetOperator(const string& tag) {
+  if (tag.size() == 0) return SUBSTITUTION;
+  switch (tag[0]) {
+    case '#': return SECTION_START;
+    case '^': return NEGATED_SECTION_START;
+    case '/': return SECTION_END;
+    case '>': return PARTIAL;
+    case '!': return COMMENT;
+    default: return SUBSTITUTION;
+  }
 }
+
+int EvaluateTag(const string& document, int idx, const Value* context, TagOperator tag,
+    const string& tag_name, stringstream* out);
 
 void EscapeHtml(const string& in, stringstream *out) {
   BOOST_FOREACH(const char& c, in) {
@@ -116,7 +133,7 @@ void ResolveJsonContext(const string& path, const Value& parent_context,
   *resolved = cur;
 }
 
-int FindNextMustache(const string& document, int idx, char* tag, string* tag_name,
+int FindNextTag(const string& document, int idx, TagOperator* tag_op, string* tag_name,
     bool* is_triple, stringstream* out) {
   while (idx < document.size()) {
     if (document[idx] == '{' && idx < (document.size() - 3) && document[idx + 1] == '{') {
@@ -140,13 +157,10 @@ int FindNextMustache(const string& document, int idx, char* tag, string* tag_nam
       trim(key);
       if (key != ".") trim_if(key, is_any_of("."));
       if (key.size() == 0) continue;
-      char tag_candidate = key[0];
-      if (IsTag(tag_candidate)) {
-        *tag = tag_candidate;
+      *tag_op = GetOperator(key);
+      if (*tag_op != SUBSTITUTION) {
         key = key.substr(1);
         trim(key);
-      } else {
-        *tag = 0;
       }
       if (key.size() == 0) continue;
       *tag_name = key;
@@ -159,9 +173,8 @@ int FindNextMustache(const string& document, int idx, char* tag, string* tag_nam
   return idx;
 }
 
-int DoWith(const string& document, int idx, const Value* parent_context, bool is_negation,
-    const string& tag_name, stringstream* out) {
-  cout << "DoWith: " << idx << ", tag_name: " << tag_name << endl;
+int EvaluateSection(const string& document, int idx, const Value* parent_context,
+    bool is_negation, const string& tag_name, stringstream* out) {
   // Precondition: idx is the immedate next character after an opening {{ #tag_name }}
   const Value* context;
   ResolveJsonContext(tag_name, *parent_context, &context);
@@ -186,30 +199,27 @@ int DoWith(const string& document, int idx, const Value* parent_context, bool is
   BOOST_FOREACH(const Value* v, values) {
     idx = start_idx;
     while (idx < document.size()) {
-      char tag = 0;
+      TagOperator tag_op;
       string next_tag_name;
-      idx = FindNextMustache(document, idx, &tag, &next_tag_name, NULL,
+      idx = FindNextTag(document, idx, &tag_op, &next_tag_name, NULL,
           skip_contents ? NULL : out);
 
-      if (idx > document.size()) {
-        cout << "Gone off end of document" << endl;
-        return idx;
-      }
-      if (tag == '/' && next_tag_name == tag_name) {
+      if (idx > document.size()) return idx;
+      if (tag_op == SECTION_END && next_tag_name == tag_name) {
         break;
       }
 
       // Don't need to evaluate any templates if we're skipping the contents
       if (!skip_contents) {
-        idx = Dispatch(document, idx, v, tag, next_tag_name, out);
+        idx = EvaluateTag(document, idx, v, tag_op, next_tag_name, out);
       }
     }
   }
   return idx;
 }
 
-int DoSubstitute(const string& document, const int idx, const Value* parent_context,
-    const string& tag_name, stringstream* out) {
+int EvaluateSubstitution(const string& document, const int idx,
+    const Value* parent_context, const string& tag_name, stringstream* out) {
   const Value* context;
   ResolveJsonContext(tag_name, *parent_context, &context);
   if (context == NULL) return idx;
@@ -230,19 +240,19 @@ int DoSubstitute(const string& document, const int idx, const Value* parent_cont
   return idx;
 }
 
-int Dispatch(const string& document, int idx, const Value* context, char tag,
+int EvaluateTag(const string& document, int idx, const Value* context, TagOperator tag,
     const string& tag_name, stringstream* out) {
   if (idx == -1) return idx;
   switch (tag) {
-    case '#':
-      return DoWith(document, idx, context, false, tag_name, out);
-    case '^':
-      return DoWith(document, idx, context, true, tag_name, out);
-    case 0:
-      return DoSubstitute(document, idx, context, tag_name, out);
-    case '!':
+    case SECTION_START:
+      return EvaluateSection(document, idx, context, false, tag_name, out);
+    case NEGATED_SECTION_START:
+      return EvaluateSection(document, idx, context, true, tag_name, out);
+    case SUBSTITUTION:
+      return EvaluateSubstitution(document, idx, context, tag_name, out);
+    case COMMENT:
       return idx; // Ignored
-    case '>':
+    case PARTIAL:
       return idx; // TODO: Partials
     default:
       cout << "Unknown tag: " << tag << endl;
@@ -254,9 +264,9 @@ void RenderTemplate(const string& document, const Value& context, stringstream* 
   int idx = 0;
   while (idx < document.size() && idx != -1) {
     string tag_name;
-    char tag;
-    idx = FindNextMustache(document, idx, &tag, &tag_name, NULL, out);
-    idx = Dispatch(document, idx, &context, tag, tag_name, out);
+    TagOperator tag_op;
+    idx = FindNextTag(document, idx, &tag_op, &tag_name, NULL, out);
+    idx = EvaluateTag(document, idx, &context, tag_op, tag_name, out);
   }
 }
 
