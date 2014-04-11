@@ -1,5 +1,3 @@
-// Copyright 2014 Henry Robinson
-//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -15,6 +13,8 @@
 #include "rapidjson/document.h"
 #include <sstream>
 
+// Routines for rendering Mustache (http://mustache.github.io) templates with RapidJson
+// (https://code.google.com/p/rapidjson/) documents.
 namespace mustache {
 
 // Render a template contained in 'document' with respect to the json context
