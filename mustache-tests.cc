@@ -115,6 +115,7 @@ TEST(RenderTemplate, IgnoredBlocks) {
 
 TEST(RenderTemplate, Escaping) {
   TestTemplate("{{escape}}", "{ \"escape\": \"<html>\" }", "&lt;html&gt;");
+  TestTemplate("{{{escape}}}", "{ \"escape\": \"<html>\" }", "<html>");
 }
 
 int main(int argc, char **argv) {

@@ -30,7 +30,6 @@ using namespace boost::algorithm;
 namespace mustache {
 
 // TODO:
-// # Triple {{{
 // # Handle malformed templates better
 // # Support array_tag.length?
 // # Better support for reading templates from files
@@ -57,7 +56,7 @@ TagOperator GetOperator(const string& tag) {
 }
 
 int EvaluateTag(const string& document, int idx, const Value* context, TagOperator tag,
-    const string& tag_name, stringstream* out);
+    const string& tag_name, bool is_triple, stringstream* out);
 
 void EscapeHtml(const string& in, stringstream *out) {
   BOOST_FOREACH(const char& c, in) {
@@ -144,15 +143,25 @@ int FindNextTag(const string& document, int idx, TagOperator* tag_op, string* ta
     bool* is_triple, stringstream* out) {
   while (idx < document.size()) {
     if (document[idx] == '{' && idx < (document.size() - 3) && document[idx + 1] == '{') {
-      idx += 2; // Now at start of template expression
+      if (document[idx + 2] == '{') {
+        idx += 3;
+        *is_triple = true;
+      } else {
+        *is_triple = false;
+        idx += 2; // Now at start of template expression
+      }
       stringstream expr;
       while (idx < document.size()) {
         if (document[idx] != '}') {
           expr << document[idx];
           ++idx;
         } else {
-          if (idx < document.size() - 1 && document[idx + 1] == '}') {
+          if (!*is_triple && idx < document.size() - 1 && document[idx + 1] == '}') {
             ++idx;
+            break;
+          } else if (*is_triple && idx < document.size() - 2 && document[idx + 1] == '}'
+              && document[idx + 2] == '}') {
+            idx += 2;
             break;
           } else {
             expr << '}';
@@ -215,7 +224,8 @@ int EvaluateSection(const string& document, int idx, const Value* parent_context
     while (idx < document.size()) {
       TagOperator tag_op;
       string next_tag_name;
-      idx = FindNextTag(document, idx, &tag_op, &next_tag_name, NULL,
+      bool is_triple;
+      idx = FindNextTag(document, idx, &tag_op, &next_tag_name, &is_triple,
           skip_contents ? NULL : out);
 
       if (idx > document.size()) return idx;
@@ -225,7 +235,7 @@ int EvaluateSection(const string& document, int idx, const Value* parent_context
 
       // Don't need to evaluate any templates if we're skipping the contents
       if (!skip_contents) {
-        idx = EvaluateTag(document, idx, v, tag_op, next_tag_name, out);
+        idx = EvaluateTag(document, idx, v, tag_op, next_tag_name, is_triple, out);
       }
     }
   }
@@ -235,12 +245,13 @@ int EvaluateSection(const string& document, int idx, const Value* parent_context
 // Evaluates a SUBSTITUTION tag, by replacing its contents with the value of the tag's
 // name in 'parent_context'.
 int EvaluateSubstitution(const string& document, const int idx,
-    const Value* parent_context, const string& tag_name, stringstream* out) {
+    const Value* parent_context, const string& tag_name, bool is_triple,
+    stringstream* out) {
   const Value* context;
   ResolveJsonContext(tag_name, *parent_context, &context);
   if (context == NULL) return idx;
   if (context->IsString()) {
-    if (true) {
+    if (!is_triple) {
       EscapeHtml(context->GetString(), out);
     } else {
       // TODO: Triple {{{ means don't escape
@@ -260,7 +271,7 @@ int EvaluateSubstitution(const string& document, const int idx,
 // output to 'out'. The heavy-lifting is delegated to specific Evaluate*()
 // methods. Returns the new cursor position within 'document', or -1 on error.
 int EvaluateTag(const string& document, int idx, const Value* context, TagOperator tag,
-    const string& tag_name, stringstream* out) {
+    const string& tag_name, bool is_triple, stringstream* out) {
   if (idx == -1) return idx;
   switch (tag) {
     case SECTION_START:
@@ -268,7 +279,7 @@ int EvaluateTag(const string& document, int idx, const Value* context, TagOperat
     case NEGATED_SECTION_START:
       return EvaluateSection(document, idx, context, true, tag_name, out);
     case SUBSTITUTION:
-      return EvaluateSubstitution(document, idx, context, tag_name, out);
+      return EvaluateSubstitution(document, idx, context, tag_name, is_triple, out);
     case COMMENT:
       return idx; // Ignored
     case PARTIAL:
@@ -284,8 +295,9 @@ void RenderTemplate(const string& document, const Value& context, stringstream* 
   while (idx < document.size() && idx != -1) {
     string tag_name;
     TagOperator tag_op;
-    idx = FindNextTag(document, idx, &tag_op, &tag_name, NULL, out);
-    idx = EvaluateTag(document, idx, &context, tag_op, tag_name, out);
+    bool is_triple;
+    idx = FindNextTag(document, idx, &tag_op, &tag_name, &is_triple, out);
+    idx = EvaluateTag(document, idx, &context, tag_op, tag_name, is_triple, out);
   }
 }
 
