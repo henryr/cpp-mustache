@@ -85,6 +85,12 @@ TEST(RenderTemplate, WithAsIterator) {
   TestTemplate("{{#a}}{{foo.bar}}{{/a}}{{#b}}{{.}}{{/b}}",
       "{ \"a\": [ {\"foo\": { \"bar\": 1 } }], \"b\": [ 2 ] }",
       "12");
+
+  // Recreate bug found producing HTML
+  TestTemplate("{{#a}} {{#b}}b{{/b}} a {{/a}}d", "{ \"a\": [ { \"b\": [] } ] }",
+      "  a d");
+
+  TestTemplate("{{#a}}1{{/a}} 2", "{ \"a\": [] }", " 2");
 }
 
 TEST(RenderTemplate, WithAsPredicate) {

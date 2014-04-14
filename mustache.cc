@@ -219,6 +219,17 @@ int EvaluateSection(const string& document, int idx, const Value* parent_context
   } else {
     values.push_back(skip_contents ? NULL : context);
   }
+  if (values.size() == 0) {
+    TagOperator tag_op;
+    string next_tag_name;
+    bool is_triple;
+
+    idx = FindNextTag(document, idx, &tag_op, &next_tag_name, &is_triple,
+        NULL);
+    if (tag_op != SECTION_END && next_tag_name == tag_name) return -1;
+    return idx;
+  }
+
   int start_idx = idx;
   BOOST_FOREACH(const Value* v, values) {
     idx = start_idx;
