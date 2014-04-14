@@ -91,6 +91,7 @@ TEST(RenderTemplate, WithAsIterator) {
       "  a d");
 
   TestTemplate("{{#a}}1{{/a}} 2", "{ \"a\": [] }", " 2");
+  TestTemplate("{{#a}}{{should-skip}}{{/a}} Hello", "{ \"a\": [] }", " Hello");
 }
 
 TEST(RenderTemplate, WithAsPredicate) {
