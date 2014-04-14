@@ -118,6 +118,22 @@ TEST(RenderTemplate, Escaping) {
   TestTemplate("{{{escape}}}", "{ \"escape\": \"<html>\" }", "<html>");
 }
 
+TEST(RenderTemplate, Partials) {
+  TestTemplate("{{>doesntexist.tmpl}}", "{ }", "");
+  TestTemplate("{{>test-templates/partial.tmpl}}", "{ \"a\": 10 }", "Hello 10");
+  TestTemplate("{{a}}{{>test-templates/partial.tmpl}}{{a}}", "{ \"a\": 10 }",
+      "10Hello 1010");
+  TestTemplate("{{#outer}} {{>test-templates/partial.tmpl}} {{/outer}}",
+      "{ \"outer\": { \"a\": 42 } }", " Hello 42 ");
+  TestTemplate("{{>test-templates/partial.tmpl}}", "{ \"outer\": { \"a\": 42 } }",
+      "Hello ");
+  TestTemplate("{{#outer}}{{>test-templates/partial.tmpl}}{{/outer}}",
+      "{ \"outer\": [1,2,3] }", "Hello Hello Hello ");
+
+  // Check that if a template is not found, <name>.mustache is also tried.
+  TestTemplate("{{>test-templates/mst-template}}", "{ }", "Hello world");
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

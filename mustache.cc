@@ -16,6 +16,7 @@
 #include "rapidjson/writer.h"
 
 #include <iostream>
+#include <fstream>
 #include <vector>
 
 #include <boost/algorithm/string.hpp>
@@ -38,7 +39,8 @@ enum TagOperator {
   NEGATED_SECTION_START,
   SECTION_END,
   PARTIAL,
-  COMMENT
+  COMMENT,
+  NONE
 };
 
 TagOperator GetOperator(const string& tag) {
@@ -139,6 +141,7 @@ void ResolveJsonContext(const string& path, const Value& parent_context,
 
 int FindNextTag(const string& document, int idx, TagOperator* tag_op, string* tag_name,
     bool* is_triple, stringstream* out) {
+  *tag_op = NONE;
   while (idx < document.size()) {
     if (document[idx] == '{' && idx < (document.size() - 3) && document[idx + 1] == '{') {
       if (document[idx + 2] == '{') {
@@ -265,6 +268,25 @@ int EvaluateSubstitution(const string& document, const int idx,
   return idx;
 }
 
+// Evaluates a 'partial' tempalte by reading it fully from disk, then rendering it
+// directly into the current output with the current context.
+//
+// TODO: This could obviously be more efficient (and there are lots of file accesses in a
+// long list context).
+void EvaluatePartial(const string& tag_name, const Value* parent_context,
+    stringstream* out) {
+  ifstream tmpl(tag_name.c_str());
+  if (!tmpl.is_open()) {
+    stringstream ss;
+    ss << tag_name << ".mustache";
+    tmpl.open(ss.str().c_str());
+    if (!tmpl.is_open()) return;
+  }
+  stringstream file_ss;
+  file_ss << tmpl.rdbuf();
+  RenderTemplate(file_ss.str(), *parent_context, out);
+}
+
 // Given a tag name, and its operator, evaluate the tag in the given context and write the
 // output to 'out'. The heavy-lifting is delegated to specific Evaluate*()
 // methods. Returns the new cursor position within 'document', or -1 on error.
@@ -281,7 +303,10 @@ int EvaluateTag(const string& document, int idx, const Value* context, TagOperat
     case COMMENT:
       return idx; // Ignored
     case PARTIAL:
-      return idx; // TODO: Partials
+      EvaluatePartial(tag_name, context, out);
+      return idx;
+    case NONE:
+      return idx; // No tag was found
     default:
       cout << "Unknown tag: " << tag << endl;
       return -1;
