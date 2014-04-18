@@ -113,6 +113,9 @@ TEST(RenderTemplate, WithAsNegatedPredicate) {
 
   TestTemplate("{{^a}}Hello{{/a}}", "{ \"a\": true }", "");
   TestTemplate("{{^a}}Hello{{/a}}", "{ \"a\": false }", "Hello");
+
+  // Test that matching a negated predicate retains the same level context
+  TestTemplate("{{^a}}{{b}}{{/a}}", "{ \"b\": 1}", "1");
 }
 
 

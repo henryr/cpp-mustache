@@ -209,7 +209,10 @@ int EvaluateSection(const string& document, int idx, const Value* parent_context
 
   // If the tag is a negative block (i.e. {{^tag_name}}), do the opposite: if the context
   // exists and is true, skip the contents, else echo them.
-  if (is_negation) skip_contents = !skip_contents;
+  if (is_negation) {
+    context = parent_context;
+    skip_contents = !skip_contents;
+  }
 
   vector<const Value*> values;
   if (!skip_contents && context != NULL && context->IsArray()) {
