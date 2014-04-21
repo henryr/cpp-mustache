@@ -37,6 +37,7 @@ enum TagOperator {
   SUBSTITUTION,
   SECTION_START,
   NEGATED_SECTION_START,
+  PREDICATE_SECTION_START,
   SECTION_END,
   PARTIAL,
   COMMENT,
@@ -48,6 +49,7 @@ TagOperator GetOperator(const string& tag) {
   switch (tag[0]) {
     case '#': return SECTION_START;
     case '^': return NEGATED_SECTION_START;
+    case '?': return PREDICATE_SECTION_START;
     case '/': return SECTION_END;
     case '>': return PARTIAL;
     case '!': return COMMENT;
@@ -190,15 +192,15 @@ int FindNextTag(const string& document, int idx, TagOperator* tag_op, string* ta
   return idx;
 }
 
-// Evaluates a [NEGATED_]SECTION_START / SECTION_END pair by evaluating the tag in
-// 'parent_context'. False or non-existant values cause the entire section to be
+// Evaluates a [PREDICATE_|NEGATED_]SECTION_START / SECTION_END pair by evaluating the tag
+// in 'parent_context'. False or non-existant values cause the entire section to be
 // skipped. True values cause the section to be evaluated as though it were a normal
 // section, but with the parent context being the root context for that section.
 //
 // If 'is_negation' is true, the behaviour is the opposite of the above: false values
 // cause the section to be normally evaluated etc.
 int EvaluateSection(const string& document, int idx, const Value* parent_context,
-    bool is_negation, const string& tag_name, stringstream* out) {
+    TagOperator op, const string& tag_name, stringstream* out) {
   // Precondition: idx is the immedate next character after an opening {{ #tag_name }}
   const Value* context;
   ResolveJsonContext(tag_name, *parent_context, &context);
@@ -209,9 +211,11 @@ int EvaluateSection(const string& document, int idx, const Value* parent_context
 
   // If the tag is a negative block (i.e. {{^tag_name}}), do the opposite: if the context
   // exists and is true, skip the contents, else echo them.
-  if (is_negation) {
+  if (op == NEGATED_SECTION_START) {
     context = parent_context;
     skip_contents = !skip_contents;
+  } else if (op == PREDICATE_SECTION_START) {
+    context = parent_context;
   }
 
   vector<const Value*> values;
@@ -303,9 +307,9 @@ int EvaluateTag(const string& document, int idx, const Value* context, TagOperat
   if (idx == -1) return idx;
   switch (tag) {
     case SECTION_START:
-      return EvaluateSection(document, idx, context, false, tag_name, out);
+    case PREDICATE_SECTION_START:
     case NEGATED_SECTION_START:
-      return EvaluateSection(document, idx, context, true, tag_name, out);
+      return EvaluateSection(document, idx, context, tag, tag_name, out);
     case SUBSTITUTION:
       return EvaluateSubstitution(document, idx, context, tag_name, is_triple, out);
     case COMMENT:

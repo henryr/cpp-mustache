@@ -118,6 +118,14 @@ TEST(RenderTemplate, WithAsNegatedPredicate) {
   TestTemplate("{{^a}}{{b}}{{/a}}", "{ \"b\": 1}", "1");
 }
 
+TEST(RenderTemplate, ContextPreservingPredicate) {
+  TestTemplate("{{?a}}{{b}}{{/a}}", "{ \"a\": { \"b\": 10}, \"b\": 20 }", "20");
+  // Just for comparison: note difference when using # operator
+  TestTemplate("{{#a}}{{b}}{{/a}}", "{ \"a\": { \"b\": 10}, \"b\": 20 }", "10");
+
+  TestTemplate("{{?a}}{{b}}{{/a}}", "{ \"a\": { \"b\": 10} }", "");
+  TestTemplate("{{?a}}{{b}}{{/a}}", "{ \"c\": { \"b\": 10}, \"b\": 20 }", "");
+}
 
 TEST(RenderTemplate, IgnoredBlocks) {
   TestTemplate("Hello {{!ignoreme }} world", "{ \"ignoreme\": 1 }", "Hello  world");
