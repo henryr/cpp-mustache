@@ -11,7 +11,8 @@ using namespace mustache;
 namespace mustache {
 
 void FindJsonPathComponents(const string& path, vector<string>* components);
-void RenderTemplate(const string& document, const Value& context, stringstream* out);
+void RenderTemplate(const string& document, const string& document_root,
+    const Value& context, stringstream* out);
 
 }
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -52,7 +53,7 @@ void TestTemplate(const string& tmpl, const string& json_context,
   document.Parse<0>(json_context.c_str());
   ASSERT_TRUE(document.IsObject()) << json_context << " is not valid json";
   stringstream ss;
-  RenderTemplate(tmpl, document, &ss);
+  RenderTemplate(tmpl, "", document, &ss);
   ASSERT_EQ(expected, ss.str()) << "Template: " << tmpl << ", json: " << json_context;
 }
 
