@@ -61,7 +61,7 @@ TEST(RenderTemplate, SubstituteSimpleTypes) {
   TestTemplate("{{ str_key }}", "{ \"str_key\": \"hello world\" }", "hello world");
   TestTemplate("{{ int_key }}", "{ \"int_key\": 10 }", "10");
   TestTemplate("{{ double_key }}", "{ \"double_key\": 10.0123 }", "10.0123");
-  TestTemplate("{{ bool_key }}", "{ \"bool_key\": true }", "1");
+  TestTemplate("{{ bool_key }}", "{ \"bool_key\": true }", "true");
   TestTemplate("{{ null_key }}", "{ \"null_key\": null }", "");
 }
 
