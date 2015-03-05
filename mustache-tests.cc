@@ -153,6 +153,14 @@ TEST(RenderTemplate, Partials) {
   TestTemplate("{{>test-templates/mst-template}}", "{ }", "Hello world");
 }
 
+TEST(RenderTemplate, Length) {
+  TestTemplate("{{%bar}}", "{ \"bar\": [1, 2, 3] }", "3");
+  TestTemplate("{{%bar}}", "{ \"bar\": [] }", "0");
+  TestTemplate("{{%bar}}", "{ \"bar\": \"abcdefg\" }", "7");
+  TestTemplate("{{%bar}}", "{ \"bar\": 8 }", "");
+  TestTemplate("{{%bar}}", "{ \"foo\": \"abcdefg\" }", "");
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
