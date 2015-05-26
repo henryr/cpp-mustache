@@ -161,6 +161,23 @@ TEST(RenderTemplate, Length) {
   TestTemplate("{{%bar}}", "{ \"foo\": \"abcdefg\" }", "");
 }
 
+TEST(RenderTemplate, Equality) {
+  TestTemplate("{{=bar foo}}true{{/bar}}", "{ \"bar\": \"foo\" }", "true");
+  TestTemplate("{{=bar foo}}true{{/bar}}", "{ \"bar\": \"baz\" }", "");
+  TestTemplate("{{!=bar foo}}true{{/bar}}", "{ \"bar\": \"baz\" }", "true");
+  TestTemplate("{{!=bar foo}}true{{/bar}}", "{ \"bar\": \"foo\" }", "");
+
+  // Test case-insensitivity
+  TestTemplate("{{=bar FoO}}true{{/bar}}", "{ \"bar\": \"foo\" }", "true");
+
+  TestTemplate("{{=bar foo  }}true{{/bar}}", "{ \"bar\": \"foo\" }", "true");
+
+  TestTemplate("{{=bar foo}}{{=baz bar}}true{{/baz}}{{/bar}}",
+      "{ \"bar\": \"foo\", \"baz\": \"bar\" }", "true");
+
+  TestTemplate("{{=bar foo}}", "{ }", "");
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
