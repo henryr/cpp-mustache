@@ -13,6 +13,7 @@
 #include "mustache.h"
 
 #include "rapidjson/stringbuffer.h"
+#include <rapidjson/prettywriter.h>
 #include "rapidjson/writer.h"
 
 #include <iostream>
@@ -43,6 +44,7 @@ enum TagOperator {
   LENGTH,
   EQUALITY,
   INEQUALITY,
+  LITERAL,
   NONE
 };
 
@@ -58,6 +60,7 @@ TagOperator GetOperator(const string& tag) {
       if (tag.size() == 1 || tag[1] != '=') return COMMENT;
       return INEQUALITY;
     case '%': return LENGTH;
+    case '~': return LITERAL;
     case '=': return EQUALITY;
     default: return SUBSTITUTION;
   }
@@ -329,6 +332,19 @@ int EvaluateLength(const string& document, const int idx, const Value* parent_co
   return idx;
 }
 
+int EvaluateLiteral(const string& document, const int idx, const Value* parent_context,
+    const string& tag_name, stringstream* out) {
+  const Value* context;
+  ResolveJsonContext(tag_name, *parent_context, &context);
+  if (context == NULL) return idx;
+  if (!context->IsArray() && !context->IsObject()) return idx;
+  StringBuffer strbuf;
+  PrettyWriter<StringBuffer> writer(strbuf);
+  context->Accept(writer);
+  (*out) << strbuf.GetString();
+  return idx;
+}
+
 // Evaluates a 'partial' template by reading it fully from disk, then rendering it
 // directly into the current output with the current context.
 //
@@ -373,6 +389,8 @@ int EvaluateTag(const string& document, const string& document_root, int idx,
       return idx;
     case LENGTH:
       return EvaluateLength(document, idx, context, tag_name, out);
+    case LITERAL:
+      return EvaluateLiteral(document, idx, context, tag_name, out);
     case NONE:
       return idx; // No tag was found
     default:

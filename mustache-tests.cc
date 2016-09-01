@@ -161,6 +161,12 @@ TEST(RenderTemplate, Length) {
   TestTemplate("{{%bar}}", "{ \"foo\": \"abcdefg\" }", "");
 }
 
+TEST(RenderTemplate, Literal) {
+  TestTemplate("{{~bar}}", "{ \"bar\": [3] }", "[\n    3\n]");
+  TestTemplate("{{~bar}}", "{ \"bar\": 3 }", "");
+  TestTemplate("{{~bar}}", "{ \"bar\": { \"foo\": 3 } }", "{\n    \"foo\": 3\n}");
+}
+
 TEST(RenderTemplate, Equality) {
   TestTemplate("{{=bar foo}}true{{/bar}}", "{ \"bar\": \"foo\" }", "true");
   TestTemplate("{{=bar foo}}true{{/bar}}", "{ \"bar\": \"baz\" }", "");
