@@ -178,6 +178,15 @@ TEST(RenderTemplate, Equality) {
   TestTemplate("{{=bar foo}}", "{ }", "");
 }
 
+TEST(RenderTemplate, Int64) {
+  int64_t int64 = std::numeric_limits<int64_t>::max();
+  stringstream json;
+  json << "{ \"bar\": " << int64 << " }";
+  stringstream ss;
+  ss << int64;
+  TestTemplate("{{bar}}", json.str(), ss.str());
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
