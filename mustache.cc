@@ -388,7 +388,7 @@ void RenderTemplate(const string& document, const string& document_root,
     string tag_name;
     string tag_arg;
     TagOperator tag_op;
-    bool is_triple;
+    bool is_triple = true;
     idx = FindNextTag(document, idx, &tag_op, &tag_name, &tag_arg, &is_triple, out);
     idx = EvaluateTag(document, document_root, idx, &context, tag_op, tag_name, tag_arg, is_triple,
         out);
