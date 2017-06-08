@@ -19,9 +19,9 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <stack>
 
 #include <boost/algorithm/string.hpp>
-#include <boost/foreach.hpp>
 
 using namespace rapidjson;
 using namespace std;
@@ -48,6 +48,14 @@ enum TagOperator {
   NONE
 };
 
+struct OpCtx {
+  TagOperator op;
+  string tag_name;
+  string tag_arg;
+  bool escaped = false;
+};
+
+
 TagOperator GetOperator(const string& tag) {
   if (tag.size() == 0) return SUBSTITUTION;
   switch (tag[0]) {
@@ -67,11 +75,10 @@ TagOperator GetOperator(const string& tag) {
 }
 
 int EvaluateTag(const string& document, const string& document_root, int idx,
-    const Value* context, TagOperator tag, const string& tag_name, const string& tag_arg,
-    bool is_triple, stringstream* out);
+    const Value* context, const OpCtx& op_ctx, stringstream* out);
 
 void EscapeHtml(const string& in, stringstream *out) {
-  BOOST_FOREACH(const char& c, in) {
+  for (const char& c: in) {
     switch (c) {
       case '&': (*out) << "&amp;";
         break;
@@ -129,7 +136,7 @@ void FindJsonPathComponents(const string& path, vector<string>* components) {
 }
 
 // Looks up the json entity at 'path' in 'parent_context', and places it in 'resolved'. If
-// the entity does not exist (i.e. the path is invalid), 'resolved' will be set to NULL.
+// the entity does not exist (i.e. the path is invalid), 'resolved' will be set to nullptr.
 void ResolveJsonContext(const string& path, const Value& parent_context,
     const Value** resolved) {
   if (path == ".") {
@@ -139,11 +146,11 @@ void ResolveJsonContext(const string& path, const Value& parent_context,
   vector<string> components;
   FindJsonPathComponents(path, &components);
   const Value* cur = &parent_context;
-  BOOST_FOREACH(const string& c, components) {
+  for(const string& c: components) {
     if (cur->IsObject() && cur->HasMember(c.c_str())) {
       cur = &(*cur)[c.c_str()];
     } else {
-      *resolved = NULL;
+      *resolved = nullptr;
       return;
     }
   }
@@ -151,16 +158,15 @@ void ResolveJsonContext(const string& path, const Value& parent_context,
   *resolved = cur;
 }
 
-int FindNextTag(const string& document, int idx, TagOperator* tag_op, string* tag_name,
-    string* tag_arg, bool* is_triple, stringstream* out) {
-  *tag_op = NONE;
+int FindNextTag(const string& document, int idx, OpCtx* op, stringstream* out) {
+  op->op = NONE;
   while (idx < document.size()) {
     if (document[idx] == '{' && idx < (document.size() - 3) && document[idx + 1] == '{') {
       if (document[idx + 2] == '{') {
         idx += 3;
-        *is_triple = true;
+        op->escaped = true;
       } else {
-        *is_triple = false;
+        op->escaped = false;
         idx += 2; // Now at start of template expression
       }
       stringstream expr;
@@ -169,10 +175,10 @@ int FindNextTag(const string& document, int idx, TagOperator* tag_op, string* ta
           expr << document[idx];
           ++idx;
         } else {
-          if (!*is_triple && idx < document.size() - 1 && document[idx + 1] == '}') {
+          if (!op->escaped && idx < document.size() - 1 && document[idx + 1] == '}') {
             ++idx;
             break;
-          } else if (*is_triple && idx < document.size() - 2 && document[idx + 1] == '}'
+          } else if (op->escaped && idx < document.size() - 2 && document[idx + 1] == '}'
               && document[idx + 2] == '}') {
             idx += 2;
             break;
@@ -186,27 +192,27 @@ int FindNextTag(const string& document, int idx, TagOperator* tag_op, string* ta
       trim(key);
       if (key != ".") trim_if(key, is_any_of("."));
       if (key.size() == 0) continue;
-      *tag_op = GetOperator(key);
-      if (*tag_op != SUBSTITUTION) {
-        int len = *tag_op == INEQUALITY ? 2 : 1;
+      op->op = GetOperator(key);
+      if (op->op != SUBSTITUTION) {
+        int len = op->op == INEQUALITY ? 2 : 1;
         key = key.substr(len);
         trim(key);
       }
       if (key.size() == 0) continue;
 
-      if (*tag_op == EQUALITY || *tag_op == INEQUALITY) {
+      if (op->op == EQUALITY || op->op == INEQUALITY) {
         // Find an argument
         vector<string> components;
         split(components, key, is_any_of(" "));
         key = components[0];
         components.erase(components.begin());
-        *tag_arg = join(components, " ");
+        op->tag_arg = join(components, " ");
       }
 
-      *tag_name = key;
+      op->tag_name = key;
       return ++idx;
     } else {
-      if (out != NULL) (*out) << document[idx];
+      if (out != nullptr) (*out) << document[idx];
     }
     ++idx;
   }
@@ -221,68 +227,68 @@ int FindNextTag(const string& document, int idx, TagOperator* tag_op, string* ta
 // If 'is_negation' is true, the behaviour is the opposite of the above: false values
 // cause the section to be normally evaluated etc.
 int EvaluateSection(const string& document, const string& document_root, int idx,
-    const Value* parent_context, TagOperator op, const string& tag_name,
-    const string& tag_arg, stringstream* out) {
+    const Value* parent_context, const OpCtx& op_ctx, stringstream* out) {
   // Precondition: idx is the immediate next character after an opening {{ #tag_name }}
   const Value* context;
-  ResolveJsonContext(tag_name, *parent_context, &context);
+  ResolveJsonContext(op_ctx.tag_name, *parent_context, &context);
 
   // If we a) cannot resolve the context from the tag name or b) the context evaluates to
   // false, we should skip the contents of the template until a closing {{/tag_name}}.
   bool skip_contents = false;
 
-  if (op == NEGATED_SECTION_START || op == PREDICATE_SECTION_START ||
-      op == SECTION_START) {
-    skip_contents = (context == NULL || context->IsFalse());
+  if (op_ctx.op == NEGATED_SECTION_START || op_ctx.op == PREDICATE_SECTION_START ||
+      op_ctx.op == SECTION_START) {
+    skip_contents = (context == nullptr || context->IsFalse());
 
     // If the tag is a negative block (i.e. {{^tag_name}}), do the opposite: if the
     // context exists and is true, skip the contents, else echo them.
-    if (op == NEGATED_SECTION_START) {
+    if (op_ctx.op == NEGATED_SECTION_START) {
       context = parent_context;
       skip_contents = !skip_contents;
-    } else if (op == PREDICATE_SECTION_START) {
+    } else if (op_ctx.op == PREDICATE_SECTION_START) {
       context = parent_context;
     }
-  } else if (op == INEQUALITY || op == EQUALITY) {
-    skip_contents = (context == NULL || !context->IsString() ||
-        strcasecmp(context->GetString(), tag_arg.c_str()) != 0);
-    if (op == INEQUALITY) skip_contents = !skip_contents;
+  } else if (op_ctx.op == INEQUALITY || op_ctx.op == EQUALITY) {
+    skip_contents = (context == nullptr || !context->IsString() ||
+        strcasecmp(context->GetString(), op_ctx.tag_arg.c_str()) != 0);
+    if (op_ctx.op == INEQUALITY) skip_contents = !skip_contents;
     context = parent_context;
   }
 
   vector<const Value*> values;
-  if (!skip_contents && context != NULL && context->IsArray()) {
+  if (!skip_contents && context != nullptr && context->IsArray()) {
     for (int i = 0; i < context->Size(); ++i) {
       values.push_back(&(*context)[i]);
     }
   } else {
-    values.push_back(skip_contents ? NULL : context);
+    values.push_back(skip_contents ? nullptr : context);
   }
   if (values.size() == 0) {
     skip_contents = true;
-    values.push_back(NULL);
+    values.push_back(nullptr);
   }
 
   int start_idx = idx;
-  BOOST_FOREACH(const Value* v, values) {
+  for(const Value* v: values) {
     idx = start_idx;
+    stack<OpCtx> section_starts;
+    section_starts.push(op_ctx);
     while (idx < document.size()) {
-      TagOperator tag_op;
-      string tag_arg;
-      string next_tag_name;
-      bool is_triple;
-      idx = FindNextTag(document, idx, &tag_op, &next_tag_name, &tag_arg, &is_triple,
-          skip_contents ? NULL : out);
-
-      if (idx > document.size()) return idx;
-      if (tag_op == SECTION_END && next_tag_name == tag_name) {
-        break;
+      OpCtx next_ctx;
+      idx = FindNextTag(document, idx, &next_ctx, skip_contents ? nullptr : out);
+      if (skip_contents && (next_ctx.op == SECTION_START ||
+              next_ctx.op == PREDICATE_SECTION_START ||
+              next_ctx.op == NEGATED_SECTION_START)) {
+        section_starts.push(next_ctx);
+      } else if (next_ctx.op == SECTION_END) {
+        if (next_ctx.tag_name != section_starts.top().tag_name) return -1;
+        section_starts.pop();
       }
+      if (section_starts.empty()) break;
 
       // Don't need to evaluate any templates if we're skipping the contents
       if (!skip_contents) {
-        idx = EvaluateTag(document, document_root, idx, v, tag_op, next_tag_name,
-            tag_arg, is_triple, out);
+        idx = EvaluateTag(document, document_root, idx, v, next_ctx, out);
       }
     }
   }
@@ -292,13 +298,12 @@ int EvaluateSection(const string& document, const string& document_root, int idx
 // Evaluates a SUBSTITUTION tag, by replacing its contents with the value of the tag's
 // name in 'parent_context'.
 int EvaluateSubstitution(const string& document, const int idx,
-    const Value* parent_context, const string& tag_name, bool is_triple,
-    stringstream* out) {
+    const Value* parent_context, const OpCtx& op_ctx, stringstream* out) {
   const Value* context;
-  ResolveJsonContext(tag_name, *parent_context, &context);
-  if (context == NULL) return idx;
+  ResolveJsonContext(op_ctx.tag_name, *parent_context, &context);
+  if (context == nullptr) return idx;
   if (context->IsString()) {
-    if (!is_triple) {
+    if (!op_ctx.escaped) {
       EscapeHtml(context->GetString(), out);
     } else {
       // TODO: Triple {{{ means don't escape
@@ -322,7 +327,7 @@ int EvaluateLength(const string& document, const int idx, const Value* parent_co
     const string& tag_name, stringstream* out) {
   const Value* context;
   ResolveJsonContext(tag_name, *parent_context, &context);
-  if (context == NULL) return idx;
+  if (context == nullptr) return idx;
   if (context->IsArray()) {
     (*out) << context->Size();
   } else if (context->IsString()) {
@@ -336,7 +341,7 @@ int EvaluateLiteral(const string& document, const int idx, const Value* parent_c
     const string& tag_name, stringstream* out) {
   const Value* context;
   ResolveJsonContext(tag_name, *parent_context, &context);
-  if (context == NULL) return idx;
+  if (context == nullptr) return idx;
   if (!context->IsArray() && !context->IsObject()) return idx;
   StringBuffer strbuf;
   PrettyWriter<StringBuffer> writer(strbuf);
@@ -369,48 +374,46 @@ void EvaluatePartial(const string& tag_name, const string& document_root,
 // output to 'out'. The heavy-lifting is delegated to specific Evaluate*()
 // methods. Returns the new cursor position within 'document', or -1 on error.
 int EvaluateTag(const string& document, const string& document_root, int idx,
-    const Value* context, TagOperator tag, const string& tag_name, const string& tag_arg,
-    bool is_triple, stringstream* out) {
+    const Value* context, const OpCtx& op_ctx, stringstream* out) {
   if (idx == -1) return idx;
-  switch (tag) {
+  switch (op_ctx.op) {
     case SECTION_START:
     case PREDICATE_SECTION_START:
     case NEGATED_SECTION_START:
     case EQUALITY:
     case INEQUALITY:
-      return EvaluateSection(document, document_root, idx, context, tag, tag_name,
-          tag_arg, out);
+      return EvaluateSection(document, document_root, idx, context, op_ctx, out);
     case SUBSTITUTION:
-      return EvaluateSubstitution(document, idx, context, tag_name, is_triple, out);
+      return EvaluateSubstitution(document, idx, context, op_ctx, out);
     case COMMENT:
       return idx; // Ignored
     case PARTIAL:
-      EvaluatePartial(tag_name, document_root, context, out);
+      EvaluatePartial(op_ctx.tag_name, document_root, context, out);
       return idx;
     case LENGTH:
-      return EvaluateLength(document, idx, context, tag_name, out);
+      return EvaluateLength(document, idx, context, op_ctx.tag_name, out);
     case LITERAL:
-      return EvaluateLiteral(document, idx, context, tag_name, out);
+      return EvaluateLiteral(document, idx, context, op_ctx.tag_name, out);
     case NONE:
       return idx; // No tag was found
+    case SECTION_END:
+      return idx;
     default:
-      cout << "Unknown tag: " << tag << endl;
+      cout << "Unknown tag: " << op_ctx.op << endl;
       return -1;
   }
 }
 
-void RenderTemplate(const string& document, const string& document_root,
+bool RenderTemplate(const string& document, const string& document_root,
     const Value& context, stringstream* out) {
   int idx = 0;
   while (idx < document.size() && idx != -1) {
-    string tag_name;
-    string tag_arg;
-    TagOperator tag_op;
-    bool is_triple = true;
-    idx = FindNextTag(document, idx, &tag_op, &tag_name, &tag_arg, &is_triple, out);
-    idx = EvaluateTag(document, document_root, idx, &context, tag_op, tag_name, tag_arg, is_triple,
-        out);
+    OpCtx op;
+    idx = FindNextTag(document, idx, &op, out);
+    idx = EvaluateTag(document, document_root, idx, &context, op, out);
   }
+
+  return idx != -1;
 }
 
 }

@@ -11,8 +11,6 @@ using namespace mustache;
 namespace mustache {
 
 void FindJsonPathComponents(const string& path, vector<string>* components);
-void RenderTemplate(const string& document, const string& document_root,
-    const Value& context, stringstream* out);
 
 }
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -53,8 +51,21 @@ void TestTemplate(const string& tmpl, const string& json_context,
   document.Parse<0>(json_context.c_str());
   ASSERT_TRUE(document.IsObject()) << json_context << " is not valid json";
   stringstream ss;
-  RenderTemplate(tmpl, "", document, &ss);
+  ASSERT_TRUE(RenderTemplate(tmpl, "", document, &ss)) << " parse error! "
+                                                       << endl << "Template: " << tmpl
+                                                       << ", json: " << json_context;
   ASSERT_EQ(expected, ss.str()) << "Template: " << tmpl << ", json: " << json_context;
+}
+
+void TestTemplateExpectError(const string& tmpl, const string& json_context) {
+  Document document;
+  // TODO: Check for error
+  document.Parse<0>(json_context.c_str());
+  ASSERT_TRUE(document.IsObject()) << json_context << " is not valid json";
+  stringstream ss;
+  ASSERT_FALSE(RenderTemplate(tmpl, "", document, &ss)) << "No parse error! "
+                                                        << endl << "Template: " << tmpl
+                                                        << ", json: " << json_context;
 }
 
 TEST(RenderTemplate, SubstituteSimpleTypes) {
@@ -191,6 +202,15 @@ TEST(RenderTemplate, Int64) {
   stringstream ss;
   ss << int64;
   TestTemplate("{{bar}}", json.str(), ss.str());
+}
+
+TEST(RenderTemplate, NestedTemplatesWithSameTag) {
+  TestTemplate("{{?b}}{{#b}}{{/b}}{{/b}}Hello", "{ \"b\": 3 }", "Hello");
+  TestTemplate("{{?b}}{{#b}}{{/b}}{{/b}}Hello", "{  }", "Hello");
+}
+
+TEST(Errors, BasicErrors) {
+  TestTemplateExpectError("{{?b}}{{/a}}", "{ }");
 }
 
 int main(int argc, char **argv) {
