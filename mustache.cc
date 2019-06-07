@@ -81,6 +81,9 @@ TagOperator GetOperator(const string& tag) {
 int EvaluateTag(const string& document, const string& document_root, int idx,
     const ContextStack* context, const OpCtx& op_ctx, stringstream* out);
 
+static bool RenderTemplate(const string& document, const string& document_root,
+                           const ContextStack* stack, stringstream* out);
+
 void EscapeHtml(const string& in, stringstream *out) {
   for (const char& c: in) {
     switch (c) {
@@ -376,7 +379,7 @@ int EvaluateLiteral(const string& document, const int idx, const ContextStack* c
 // TODO: This could obviously be more efficient (and there are lots of file accesses in a
 // long list context).
 void EvaluatePartial(const string& tag_name, const string& document_root,
-    const Value* parent_context, stringstream* out) {
+    const ContextStack* stack, stringstream* out) {
   stringstream ss;
   ss << document_root << tag_name;
   ifstream tmpl(ss.str().c_str());
@@ -387,7 +390,7 @@ void EvaluatePartial(const string& tag_name, const string& document_root,
   }
   stringstream file_ss;
   file_ss << tmpl.rdbuf();
-  RenderTemplate(file_ss.str(), document_root, *parent_context, out);
+  RenderTemplate(file_ss.str(), document_root, stack, out);
 }
 
 // Given a tag name, and its operator, evaluate the tag in the given context and write the
@@ -408,7 +411,7 @@ int EvaluateTag(const string& document, const string& document_root, int idx,
     case COMMENT:
       return idx; // Ignored
     case PARTIAL:
-      EvaluatePartial(op_ctx.tag_name, document_root, context->value, out);
+      EvaluatePartial(op_ctx.tag_name, document_root, context, out);
       return idx;
     case LENGTH:
       return EvaluateLength(document, idx, context, op_ctx.tag_name, out);
@@ -424,17 +427,22 @@ int EvaluateTag(const string& document, const string& document_root, int idx,
   }
 }
 
-bool RenderTemplate(const string& document, const string& document_root,
-    const Value& context, stringstream* out) {
+static bool RenderTemplate(const string& document, const string& document_root,
+                           const ContextStack* stack, stringstream* out) {
   int idx = 0;
-  ContextStack stack = { &context, nullptr };
   while (idx < document.size() && idx != -1) {
     OpCtx op;
     idx = FindNextTag(document, idx, &op, out);
-    idx = EvaluateTag(document, document_root, idx, &stack, op, out);
+    idx = EvaluateTag(document, document_root, idx, stack, op, out);
   }
 
   return idx != -1;
+}
+
+bool RenderTemplate(const string& document, const string& document_root,
+    const Value& context, stringstream* out) {
+  ContextStack stack = { &context, nullptr };
+  return RenderTemplate(document, document_root, &stack, out);
 }
 
 }

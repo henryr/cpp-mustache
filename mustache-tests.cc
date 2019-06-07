@@ -170,6 +170,10 @@ TEST(RenderTemplate, Partials) {
   TestTemplate("{{#outer}}{{>test-templates/partial.tmpl}}{{/outer}}",
       "{ \"outer\": [1,2,3] }", "Hello Hello Hello ");
 
+  // Variables in partials should recursively resolve up the context stack.
+  TestTemplate("{{#outer}}{{>test-templates/partial.tmpl}}{{/outer}}",
+      "{ \"outer\": [1,2,3], \"a\": \"foo\" }", "Hello fooHello fooHello foo");
+
   // Check that if a template is not found, <name>.mustache is also tried.
   TestTemplate("{{>test-templates/mst-template}}", "{ }", "Hello world");
 }
