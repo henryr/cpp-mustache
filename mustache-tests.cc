@@ -111,8 +111,9 @@ TEST(RenderTemplate, WithAsPredicate) {
   TestTemplate("{{#a}}Hello {{.}}{{/a}}", "{ \"a\": 1}", "Hello 1");
   TestTemplate("{{#a}}Hello {{#b}}World{{/b}}{{/a}}", "{ \"a\": { \"b\": 2} }",
       "Hello World");
+  // 'b' gets resolved from the outer context
   TestTemplate("{{#a}}Hello {{#b}}World{{/b}}{{/a}}", "{ \"a\": 1, \"b\": 2 }",
-      "Hello ");
+      "Hello World");
   TestTemplate("{{#a}}Hello{{/a}}", "{ \"a\": true }", "Hello");
   TestTemplate("{{#a}}Hello{{/a}}", "{ \"a\": false }", "");
 }
@@ -139,6 +140,15 @@ TEST(RenderTemplate, ContextPreservingPredicate) {
   TestTemplate("{{?a}}{{b}}{{/a}}", "{ \"c\": { \"b\": 10}, \"b\": 20 }", "");
 }
 
+TEST(RenderTemplate, ResolveFromParentContext) {
+  TestTemplate("{{#a}}{{b}}{{/a}}", "{ \"a\": { \"b\": 10}, \"b\": 20 }", "10");
+  // 'c' should be resolved from parent.
+  TestTemplate("{{#a}}{{c}}{{/a}}", "{ \"a\": { }, \"c\": 20 }", "20");
+  // 'c.x' should be resolved from parent.
+  TestTemplate("{{#a}}{{c.x}}{{/a}}", "{ \"a\": { }, \"c\": { \"x\": 20 } }", "20");
+}
+
+
 TEST(RenderTemplate, IgnoredBlocks) {
   TestTemplate("Hello {{!ignoreme }} world", "{ \"ignoreme\": 1 }", "Hello  world");
 }
@@ -159,6 +169,10 @@ TEST(RenderTemplate, Partials) {
       "Hello ");
   TestTemplate("{{#outer}}{{>test-templates/partial.tmpl}}{{/outer}}",
       "{ \"outer\": [1,2,3] }", "Hello Hello Hello ");
+
+  // Variables in partials should recursively resolve up the context stack.
+  TestTemplate("{{#outer}}{{>test-templates/partial.tmpl}}{{/outer}}",
+      "{ \"outer\": [1,2,3], \"a\": \"foo\" }", "Hello fooHello fooHello foo");
 
   // Check that if a template is not found, <name>.mustache is also tried.
   TestTemplate("{{>test-templates/mst-template}}", "{ }", "Hello world");

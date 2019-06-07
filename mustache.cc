@@ -55,6 +55,10 @@ struct OpCtx {
   bool escaped = false;
 };
 
+struct ContextStack {
+  const Value* value;
+  const ContextStack* parent;
+};
 
 TagOperator GetOperator(const string& tag) {
   if (tag.size() == 0) return SUBSTITUTION;
@@ -75,7 +79,10 @@ TagOperator GetOperator(const string& tag) {
 }
 
 int EvaluateTag(const string& document, const string& document_root, int idx,
-    const Value* context, const OpCtx& op_ctx, stringstream* out);
+    const ContextStack* context, const OpCtx& op_ctx, stringstream* out);
+
+static bool RenderTemplate(const string& document, const string& document_root,
+                           const ContextStack* stack, stringstream* out);
 
 void EscapeHtml(const string& in, stringstream *out) {
   for (const char& c: in) {
@@ -94,6 +101,13 @@ void EscapeHtml(const string& in, stringstream *out) {
         break;
     }
   }
+}
+
+void Dump(const rapidjson::Value& v) {
+  StringBuffer buffer;
+  Writer<StringBuffer> writer(buffer);
+  v.Accept(writer);
+  std::cout << buffer.GetString() << std::endl;
 }
 
 // Breaks a dotted path into individual components. One wrinkle, which stops this from
@@ -137,25 +151,33 @@ void FindJsonPathComponents(const string& path, vector<string>* components) {
 
 // Looks up the json entity at 'path' in 'parent_context', and places it in 'resolved'. If
 // the entity does not exist (i.e. the path is invalid), 'resolved' will be set to nullptr.
-void ResolveJsonContext(const string& path, const Value& parent_context,
+void ResolveJsonContext(const string& path, const ContextStack* stack,
     const Value** resolved) {
   if (path == ".") {
-    *resolved = &parent_context;
+    *resolved = stack->value;
     return;
   }
   vector<string> components;
   FindJsonPathComponents(path, &components);
-  const Value* cur = &parent_context;
-  for(const string& c: components) {
-    if (cur->IsObject() && cur->HasMember(c.c_str())) {
-      cur = &(*cur)[c.c_str()];
-    } else {
-      *resolved = nullptr;
+
+  // At each enclosing level of context, try to resolve the path.
+  for ( ; stack != nullptr; stack = stack->parent) {
+    const Value* cur = stack->value;
+    bool match = true;
+    for(const string& c: components) {
+      if (cur->IsObject() && cur->HasMember(c.c_str())) {
+        cur = &(*cur)[c.c_str()];
+      } else {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      *resolved = cur;
       return;
     }
   }
-
-  *resolved = cur;
+  *resolved = nullptr;
 }
 
 int FindNextTag(const string& document, int idx, OpCtx* op, stringstream* out) {
@@ -227,10 +249,10 @@ int FindNextTag(const string& document, int idx, OpCtx* op, stringstream* out) {
 // If 'is_negation' is true, the behaviour is the opposite of the above: false values
 // cause the section to be normally evaluated etc.
 int EvaluateSection(const string& document, const string& document_root, int idx,
-    const Value* parent_context, const OpCtx& op_ctx, stringstream* out) {
+    const ContextStack* context_stack, const OpCtx& op_ctx, stringstream* out) {
   // Precondition: idx is the immediate next character after an opening {{ #tag_name }}
   const Value* context;
-  ResolveJsonContext(op_ctx.tag_name, *parent_context, &context);
+  ResolveJsonContext(op_ctx.tag_name, context_stack, &context);
 
   // If we a) cannot resolve the context from the tag name or b) the context evaluates to
   // false, we should skip the contents of the template until a closing {{/tag_name}}.
@@ -243,16 +265,16 @@ int EvaluateSection(const string& document, const string& document_root, int idx
     // If the tag is a negative block (i.e. {{^tag_name}}), do the opposite: if the
     // context exists and is true, skip the contents, else echo them.
     if (op_ctx.op == NEGATED_SECTION_START) {
-      context = parent_context;
+      context = context_stack->value;
       skip_contents = !skip_contents;
     } else if (op_ctx.op == PREDICATE_SECTION_START) {
-      context = parent_context;
+      context = context_stack->value;
     }
   } else if (op_ctx.op == INEQUALITY || op_ctx.op == EQUALITY) {
     skip_contents = (context == nullptr || !context->IsString() ||
         strcasecmp(context->GetString(), op_ctx.tag_arg.c_str()) != 0);
     if (op_ctx.op == INEQUALITY) skip_contents = !skip_contents;
-    context = parent_context;
+    context = context_stack->value;
   }
 
   vector<const Value*> values;
@@ -288,7 +310,8 @@ int EvaluateSection(const string& document, const string& document_root, int idx
 
       // Don't need to evaluate any templates if we're skipping the contents
       if (!skip_contents) {
-        idx = EvaluateTag(document, document_root, idx, v, next_ctx, out);
+        ContextStack new_context = { v, context_stack };
+        idx = EvaluateTag(document, document_root, idx, &new_context, next_ctx, out);
       }
     }
   }
@@ -298,54 +321,54 @@ int EvaluateSection(const string& document, const string& document_root, int idx
 // Evaluates a SUBSTITUTION tag, by replacing its contents with the value of the tag's
 // name in 'parent_context'.
 int EvaluateSubstitution(const string& document, const int idx,
-    const Value* parent_context, const OpCtx& op_ctx, stringstream* out) {
-  const Value* context;
-  ResolveJsonContext(op_ctx.tag_name, *parent_context, &context);
-  if (context == nullptr) return idx;
-  if (context->IsString()) {
+    const ContextStack* context_stack, const OpCtx& op_ctx, stringstream* out) {
+  const Value* val;
+  ResolveJsonContext(op_ctx.tag_name, context_stack, &val);
+  if (val == nullptr) return idx;
+  if (val->IsString()) {
     if (!op_ctx.escaped) {
-      EscapeHtml(context->GetString(), out);
+      EscapeHtml(val->GetString(), out);
     } else {
       // TODO: Triple {{{ means don't escape
-      (*out) << context->GetString();
+      (*out) << val->GetString();
     }
-  } else if (context->IsInt64()) {
-    (*out) << context->GetInt64();
-  } else if (context->IsInt()) {
-    (*out) << context->GetInt();
-  } else if (context->IsDouble()) {
-    (*out) << context->GetDouble();
-  } else if (context->IsBool()) {
-    (*out) << boolalpha << context->GetBool();
+  } else if (val->IsInt64()) {
+    (*out) << val->GetInt64();
+  } else if (val->IsInt()) {
+    (*out) << val->GetInt();
+  } else if (val->IsDouble()) {
+    (*out) << val->GetDouble();
+  } else if (val->IsBool()) {
+    (*out) << boolalpha << val->GetBool();
   }
   return idx;
 }
 
 // Evaluates a LENGTH tag by replacing its contents with the type-dependent 'size' of the
 // value.
-int EvaluateLength(const string& document, const int idx, const Value* parent_context,
+int EvaluateLength(const string& document, const int idx, const ContextStack* context_stack,
     const string& tag_name, stringstream* out) {
-  const Value* context;
-  ResolveJsonContext(tag_name, *parent_context, &context);
-  if (context == nullptr) return idx;
-  if (context->IsArray()) {
-    (*out) << context->Size();
-  } else if (context->IsString()) {
-    (*out) << context->GetStringLength();
+  const Value* val;
+  ResolveJsonContext(tag_name, context_stack, &val);
+  if (val == nullptr) return idx;
+  if (val->IsArray()) {
+    (*out) << val->Size();
+  } else if (val->IsString()) {
+    (*out) << val->GetStringLength();
   };
 
   return idx;
 }
 
-int EvaluateLiteral(const string& document, const int idx, const Value* parent_context,
+int EvaluateLiteral(const string& document, const int idx, const ContextStack* context_stack,
     const string& tag_name, stringstream* out) {
-  const Value* context;
-  ResolveJsonContext(tag_name, *parent_context, &context);
-  if (context == nullptr) return idx;
-  if (!context->IsArray() && !context->IsObject()) return idx;
+  const Value* val;
+  ResolveJsonContext(tag_name, context_stack, &val);
+  if (val == nullptr) return idx;
+  if (!val->IsArray() && !val->IsObject()) return idx;
   StringBuffer strbuf;
   PrettyWriter<StringBuffer> writer(strbuf);
-  context->Accept(writer);
+  val->Accept(writer);
   (*out) << strbuf.GetString();
   return idx;
 }
@@ -356,7 +379,7 @@ int EvaluateLiteral(const string& document, const int idx, const Value* parent_c
 // TODO: This could obviously be more efficient (and there are lots of file accesses in a
 // long list context).
 void EvaluatePartial(const string& tag_name, const string& document_root,
-    const Value* parent_context, stringstream* out) {
+    const ContextStack* stack, stringstream* out) {
   stringstream ss;
   ss << document_root << tag_name;
   ifstream tmpl(ss.str().c_str());
@@ -367,14 +390,14 @@ void EvaluatePartial(const string& tag_name, const string& document_root,
   }
   stringstream file_ss;
   file_ss << tmpl.rdbuf();
-  RenderTemplate(file_ss.str(), document_root, *parent_context, out);
+  RenderTemplate(file_ss.str(), document_root, stack, out);
 }
 
 // Given a tag name, and its operator, evaluate the tag in the given context and write the
 // output to 'out'. The heavy-lifting is delegated to specific Evaluate*()
 // methods. Returns the new cursor position within 'document', or -1 on error.
 int EvaluateTag(const string& document, const string& document_root, int idx,
-    const Value* context, const OpCtx& op_ctx, stringstream* out) {
+    const ContextStack* context, const OpCtx& op_ctx, stringstream* out) {
   if (idx == -1) return idx;
   switch (op_ctx.op) {
     case SECTION_START:
@@ -404,16 +427,22 @@ int EvaluateTag(const string& document, const string& document_root, int idx,
   }
 }
 
-bool RenderTemplate(const string& document, const string& document_root,
-    const Value& context, stringstream* out) {
+static bool RenderTemplate(const string& document, const string& document_root,
+                           const ContextStack* stack, stringstream* out) {
   int idx = 0;
   while (idx < document.size() && idx != -1) {
     OpCtx op;
     idx = FindNextTag(document, idx, &op, out);
-    idx = EvaluateTag(document, document_root, idx, &context, op, out);
+    idx = EvaluateTag(document, document_root, idx, stack, op, out);
   }
 
   return idx != -1;
+}
+
+bool RenderTemplate(const string& document, const string& document_root,
+    const Value& context, stringstream* out) {
+  ContextStack stack = { &context, nullptr };
+  return RenderTemplate(document, document_root, &stack, out);
 }
 
 }
